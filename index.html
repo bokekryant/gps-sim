@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>你的手机没有原子钟 —— GPS 定位模拟</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1f2933;
+      background: #f7f8fa;
+    }
+    header { padding: 20px 24px 8px; }
+    header h1 { margin: 0 0 6px; font-size: 22px; }
+    header p { margin: 0; color: #52606d; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 20px;
+      padding: 16px 24px 32px;
+    }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    .stage { align-self: start; background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; overflow: hidden; }
+    canvas { display: block; width: 100%; touch-action: none; }
+    .panel { display: flex; flex-direction: column; gap: 14px; }
+    .card { background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; padding: 14px 16px; }
+    .card h2 { margin: 0 0 8px; font-size: 15px; }
+    ol { margin: 0; padding-left: 20px; line-height: 1.6; font-size: 14px; }
+    label { display: block; font-size: 14px; margin-top: 10px; }
+    input[type="range"] { width: 100%; }
+    .hint { font-size: 12px; color: #7b8794; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    button {
+      border: 1px solid #cbd2d9; background: #fff; border-radius: 8px;
+      padding: 6px 10px; font-size: 13px; cursor: pointer;
+    }
+    button:hover { background: #f0f4f8; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
+    dt { color: #52606d; }
+    dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+    #status { color: #c0392b; font-size: 13px; min-height: 1em; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>你的手机没有原子钟，那它怎么知道信号飞了多久？</h1>
+    <p>每颗卫星告诉你"你离我多远"（彩色圆）。圆的交点就是你的位置……前提是你的钟是准的。</p>
+  </header>
+
+  <main>
+    <div class="stage"><canvas id="view"></canvas></div>
+
+    <div class="panel">
+      <div class="card">
+        <h2>试试这样玩</h2>
+        <ol>
+          <li>拖动卫星或黑点（你），看圆怎么变。</li>
+          <li>拖动下面的<b>时钟误差</b>：所有圆一起变大或变小，交不到一点了。</li>
+          <li>但粉色 × 还在原地 —— 因为它把时钟误差也解出来了。</li>
+          <li>取消勾选"把时钟误差当未知数"，看看会错多远。</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>控制</h2>
+        <label>接收机时钟误差：<b id="clockVal"></b>
+          <input id="clock" type="range" min="-50" max="50" step="0.1" value="0" />
+        </label>
+        <div class="hint" id="clockDist"></div>
+
+        <label>测距噪声：<b id="noiseVal"></b>
+          <input id="noise" type="range" min="0" max="2000" step="50" value="0" />
+        </label>
+
+        <label><input id="solveClock" type="checkbox" checked /> 把时钟误差当未知数一起解</label>
+
+        <div class="row">
+          <button id="addSat">+ 卫星</button>
+          <button id="removeSat">− 卫星</button>
+          <button id="remeasure">重新测量</button>
+          <button id="reset">重置</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>结果</h2>
+        <dl>
+          <dt>定位误差</dt><dd id="errVal"></dd>
+          <dt>算出的时钟误差</dt><dd id="clockEst"></dd>
+          <dt>迭代次数</dt><dd id="iterVal"></dd>
+        </dl>
+        <div id="status"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="solver.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
