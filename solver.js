@@ -1,7 +1,8 @@
-// solver.js —— GPS 定位的核心机制（纯数学，不碰画图）
-// 单位约定：距离 km，时间 μs（微秒）
+// solver.js — the GPS positioning mechanism itself (pure maths, no drawing).
+// Units: distance in km, time in μs (microseconds).
 
-// 光速：每微秒约 0.3 km（也就是 1 μs 的时钟误差 ≈ 300 m 的距离误差）
+// Speed of light: about 0.3 km per microsecond.
+// So a clock that is off by 1 μs puts every distance off by ~300 m.
 const C = 0.299792458; // km/μs
 
 function dist(a, b) {
@@ -9,20 +10,20 @@ function dist(a, b) {
 }
 
 /**
- * 模拟接收机"测到"的伪距（pseudorange）。
- * 真实距离 + 接收机时钟误差造成的距离 + 噪声。
- * 注意：同一个时钟误差会加到【每一颗】卫星上 —— 这就是能把它解出来的关键。
+ * Simulate the "pseudoranges" the phone measures.
+ * pseudorange = true distance + distance caused by the phone's clock error + noise.
+ * Note: the SAME clock error is added to EVERY satellite. That is what makes it solvable.
  */
 function measurePseudoranges(sats, receiver, clockBiasUs, noiseKm = []) {
   return sats.map((s, i) => dist(s, receiver) + C * clockBiasUs + (noiseKm[i] || 0));
 }
 
-/** 高斯消元解 A·x = b（A 是 n×n）。奇异时返回 null。 */
+/** Solve A·x = b (A is n×n) by Gaussian elimination. Returns null if A is singular. */
 function solveLinear(A, b) {
   const n = b.length;
   const M = A.map((row, i) => [...row, b[i]]);
   for (let col = 0; col < n; col++) {
-    // 选主元
+    // partial pivoting: use the row with the largest value in this column
     let pivot = col;
     for (let r = col + 1; r < n; r++) {
       if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
@@ -44,14 +45,74 @@ function solveLinear(A, b) {
 }
 
 /**
- * 用 Gauss-Newton 迭代，从伪距反推位置（以及时钟误差）。
+ * ONE step of Gauss-Newton. Split out so the page can show each step.
  *
- * 未知数：x, y，以及（可选）d = C × 时钟误差（单位 km）
- * 对每颗卫星 i，模型是：  ρ_i ≈ |s_i − p| + d
- * 每一轮：在当前猜测处把模型线性化 → 最小二乘求修正量 → 更新猜测。
+ * guess = { x, y, d }, where d is the current guess of "distance caused by clock error" (km).
+ * For each satellite we compute:
+ *   predicted = pseudorange the guess predicts = |satellite − guess| + d
+ *   residual  = measured − predicted   (positive: measured is longer → move away from this satellite)
+ *   (ux, uy)  = unit vector from the satellite towards the guess (the direction the residual "pushes")
+ * Least squares then combines every satellite's push into one correction, delta.
+ */
+function gaussNewtonStep(sats, rho, guess, solveClock = true) {
+  const n = solveClock ? 3 : 2;
+  const d = solveClock ? guess.d || 0 : 0;
+
+  const rows = sats.map((s, i) => {
+    const R = Math.max(dist(s, guess), 1e-9);
+    const predicted = R + d;
+    return {
+      R,
+      ux: (guess.x - s.x) / R,
+      uy: (guess.y - s.y) / R,
+      measured: rho[i],
+      predicted,
+      residual: rho[i] - predicted,
+    };
+  });
+  const rms = Math.sqrt(rows.reduce((a, r) => a + r.residual ** 2, 0) / rows.length);
+
+  if (sats.length < n) {
+    return { ok: false, rows, rms, reason: `Needs at least ${n} satellites (you have ${sats.length})` };
+  }
+
+  // H: the Jacobian. Each row = [∂pseudorange/∂x, ∂/∂y, (∂/∂d = 1)]
+  const H = rows.map((r) => (solveClock ? [r.ux, r.uy, 1] : [r.ux, r.uy]));
+
+  // Normal equations: (HᵀH)·Δ = Hᵀr
+  const HtH = Array.from({ length: n }, () => new Array(n).fill(0));
+  const Htr = new Array(n).fill(0);
+  for (let i = 0; i < H.length; i++) {
+    for (let a = 0; a < n; a++) {
+      Htr[a] += H[i][a] * rows[i].residual;
+      for (let b = 0; b < n; b++) HtH[a][b] += H[i][a] * H[i][b];
+    }
+  }
+
+  const delta = solveLinear(HtH, Htr);
+  if (!delta) {
+    return { ok: false, rows, rms, reason: "Satellite geometry too poor (e.g. all in a line) to solve" };
+  }
+
+  const step = { x: delta[0], y: delta[1], d: solveClock ? delta[2] : 0 };
+  return {
+    ok: true,
+    rows,
+    rms,
+    delta: step,
+    size: Math.hypot(step.x, step.y, step.d),
+    next: { x: guess.x + step.x, y: guess.y + step.y, d: d + step.d },
+  };
+}
+
+/**
+ * Repeat Gauss-Newton steps until the guess stops moving.
  *
- * solveClock = false 时，假装接收机时钟是准的（只解 x, y），
- * 用来演示"不把时钟当未知数会错得多离谱"。
+ * Unknowns: x, y and (optionally) d = C × clock error (km).
+ * Model for each satellite i:  ρ_i ≈ |s_i − p| + d
+ *
+ * solveClock = false pretends the phone's clock is perfect (solves only x, y).
+ * Used to show how wrong you get if you don't treat the clock as an unknown.
  */
 function solvePosition(sats, rho, opts = {}) {
   const {
@@ -61,69 +122,29 @@ function solvePosition(sats, rho, opts = {}) {
     tol = 1e-7,
   } = opts;
 
-  const nUnknown = solveClock ? 3 : 2;
-  if (sats.length < nUnknown) {
-    return {
-      ok: false,
-      reason: `至少需要 ${nUnknown} 颗卫星（现在 ${sats.length} 颗）`,
-    };
-  }
-
-  let x = initial.x, y = initial.y, d = 0;
-  const path = [{ x, y }];
+  let guess = { x: initial.x, y: initial.y, d: 0 };
+  const path = [{ x: guess.x, y: guess.y }];
   let iterations = 0;
 
   for (; iterations < maxIter; iterations++) {
-    // H：雅可比矩阵（每行对应一颗卫星），r：残差（测到的 − 模型预测的）
-    const H = [], r = [];
-    sats.forEach((s, i) => {
-      const R = Math.max(dist(s, { x, y }), 1e-9);
-      r.push(rho[i] - (R + d));
-      const row = [(x - s.x) / R, (y - s.y) / R]; // 距离对 x、y 的偏导 = 从卫星指向你的单位向量
-      if (solveClock) row.push(1);                 // 距离对 d 的偏导 = 1
-      H.push(row);
-    });
-
-    // 正规方程 (HᵀH)·Δ = Hᵀr
-    const HtH = Array.from({ length: nUnknown }, () => new Array(nUnknown).fill(0));
-    const Htr = new Array(nUnknown).fill(0);
-    for (let i = 0; i < H.length; i++) {
-      for (let a = 0; a < nUnknown; a++) {
-        Htr[a] += H[i][a] * r[i];
-        for (let b = 0; b < nUnknown; b++) HtH[a][b] += H[i][a] * H[i][b];
-      }
-    }
-
-    const delta = solveLinear(HtH, Htr);
-    if (!delta) {
-      return { ok: false, reason: "卫星几何太差（比如排成一条直线），解不出来", path };
-    }
-
-    x += delta[0];
-    y += delta[1];
-    if (solveClock) d += delta[2];
-    path.push({ x, y });
-
-    if (Math.hypot(...delta) < tol) { iterations++; break; }
+    const st = gaussNewtonStep(sats, rho, guess, solveClock);
+    if (!st.ok) return { ok: false, reason: st.reason, path };
+    guess = st.next;
+    path.push({ x: guess.x, y: guess.y });
+    if (st.size < tol) { iterations++; break; }
   }
 
+  const { x, y, d } = guess;
   const residuals = sats.map((s, i) => rho[i] - (dist(s, { x, y }) + d));
 
-  // TODO（深度层：几何精度 DOP）：
-  //   在最终位置再算一次 HtH，求逆矩阵，取对角线之和开根号 = GDOP。
-  //   卫星挤在同一侧时 GDOP 会变大 → 同样的噪声，定位误差被放大。
+  // TODO (depth layer: geometry / DOP):
+  //   At the final position, invert HtH; sqrt of the sum of its diagonal = GDOP.
+  //   When satellites bunch together GDOP grows → the same noise gives a bigger position error.
 
-  return {
-    ok: true,
-    x, y,
-    clockBiasUs: d / C,
-    path,
-    residuals,
-    iterations,
-  };
+  return { ok: true, x, y, clockBiasUs: d / C, path, residuals, iterations };
 }
 
-// 让 node 也能 require 这个文件做测试；浏览器里这几行会被跳过
+// Lets node `require` this file for tests; skipped in the browser.
 if (typeof module !== "undefined") {
-  module.exports = { C, dist, measurePseudoranges, solveLinear, solvePosition };
+  module.exports = { C, dist, measurePseudoranges, solveLinear, gaussNewtonStep, solvePosition };
 }

@@ -1,33 +1,43 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>你的手机没有原子钟 —— GPS 定位模拟</title>
+  <title>Your phone has no atomic clock — how GPS finds you</title>
   <style>
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       color: #1f2933;
       background: #f7f8fa;
     }
-    header { padding: 20px 24px 8px; }
-    header h1 { margin: 0 0 6px; font-size: 22px; }
+    header { padding: 20px 24px 4px; }
+    header h1 { margin: 0 0 6px; font-size: 24px; }
     header p { margin: 0; color: #52606d; }
+    .tabs { display: flex; gap: 8px; padding: 14px 24px 0; flex-wrap: wrap; }
+    .tab {
+      border: 1px solid #cbd2d9; background: #fff; border-radius: 999px;
+      padding: 8px 16px; font-size: 14px; cursor: pointer;
+    }
+    .tab.active { background: #1f2933; color: #fff; border-color: #1f2933; }
     main {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-columns: minmax(0, 1fr) 350px;
       gap: 20px;
-      padding: 16px 24px 32px;
+      padding: 14px 24px 32px;
     }
-    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    @media (max-width: 880px) { main { grid-template-columns: 1fr; } }
     .stage { align-self: start; background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; overflow: hidden; }
     canvas { display: block; width: 100%; touch-action: none; }
     .panel { display: flex; flex-direction: column; gap: 14px; }
     .card { background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; padding: 14px 16px; }
-    .card h2 { margin: 0 0 8px; font-size: 15px; }
-    ol { margin: 0; padding-left: 20px; line-height: 1.6; font-size: 14px; }
+    .card h2 { margin: 0 0 8px; font-size: 16px; }
+    .card p { margin: 0 0 8px; font-size: 14px; line-height: 1.55; }
+    .formula {
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
+      background: #f5f7fa; border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px;
+    }
     label { display: block; font-size: 14px; margin-top: 10px; }
     input[type="range"] { width: 100%; }
     .hint { font-size: 12px; color: #7b8794; }
@@ -37,61 +47,130 @@
       padding: 6px 10px; font-size: 13px; cursor: pointer;
     }
     button:hover { background: #f0f4f8; }
-    dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
+    button.primary { background: #d63384; border-color: #d63384; color: #fff; }
+    button.primary:hover { background: #b82a70; }
+    button.next { width: 100%; margin-top: 12px; padding: 9px; font-size: 14px; background: #1f2933; color: #fff; border-color: #1f2933; }
+    button.next:hover { background: #323f4b; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0 0; font-size: 14px; }
     dt { color: #52606d; }
     dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
-    #status { color: #c0392b; font-size: 13px; min-height: 1em; margin-top: 8px; }
+    .status { font-size: 14px; min-height: 1em; margin-top: 10px; line-height: 1.5; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 6px; }
+    th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid #eef0f3; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: #52606d; font-weight: 500; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+    .pos { color: #c0392b; } .neg { color: #2e86ab; }
   </style>
 </head>
 <body>
   <header>
-    <h1>你的手机没有原子钟，那它怎么知道信号飞了多久？</h1>
-    <p>每颗卫星告诉你"你离我多远"（彩色圆）。圆的交点就是你的位置……前提是你的钟是准的。</p>
+    <h1>Your phone doesn't have an atomic clock.</h1>
+    <p>So how does it know how long a GPS signal took to arrive?</p>
   </header>
+
+  <nav class="tabs">
+    <button class="tab" data-mode="problem">1 · The problem</button>
+    <button class="tab" data-mode="trick">2 · The trick</button>
+    <button class="tab" data-mode="step">3 · How it's computed</button>
+    <button class="tab" data-mode="play">4 · Play</button>
+  </nav>
 
   <main>
     <div class="stage"><canvas id="view"></canvas></div>
 
     <div class="panel">
-      <div class="card">
-        <h2>试试这样玩</h2>
-        <ol>
-          <li>拖动卫星或黑点（你），看圆怎么变。</li>
-          <li>拖动下面的<b>时钟误差</b>：所有圆一起变大或变小，交不到一点了。</li>
-          <li>但粉色 × 还在原地 —— 因为它把时钟误差也解出来了。</li>
-          <li>取消勾选"把时钟误差当未知数"，看看会错多远。</li>
-        </ol>
+      <!-- 1 · The problem -->
+      <div class="card" data-for="problem">
+        <h2>1 · The problem</h2>
+        <p>Each satellite sends out the time. Your phone measures how long the signal took and turns it into a distance: a circle around that satellite. Where the circles meet is you.</p>
+        <p>But light travels <b>300 m in one microsecond</b>, and your phone's clock is a cheap quartz crystal. Drag the slider:</p>
+        <label>Your phone's clock is off by: <b id="probClockVal"></b>
+          <input id="probClock" type="range" min="-50" max="50" step="0.1" value="0" />
+        </label>
+        <div class="hint" id="probClockDist"></div>
+        <div class="status" id="probVerdict"></div>
+        <button class="next" data-goto="trick">Next: the trick →</button>
       </div>
 
-      <div class="card">
-        <h2>控制</h2>
-        <label>接收机时钟误差：<b id="clockVal"></b>
-          <input id="clock" type="range" min="-50" max="50" step="0.1" value="0" />
+      <!-- 2 · The trick -->
+      <div class="card" data-for="trick">
+        <h2>2 · The trick</h2>
+        <p>Your phone's clock is wrong by <b>the same amount for every satellite</b>. So every circle is too big by the same amount.</p>
+        <p>Shrink them all together. When they meet at one point, you've found the clock error, and your position with it.</p>
+        <div class="formula">corrected distance = measured − (speed of light × your guess)</div>
+        <label>Your guess for the clock error: <b id="guessVal"></b>
+          <input id="guess" type="range" min="-60" max="60" step="0.1" value="0" />
         </label>
-        <div class="hint" id="clockDist"></div>
+        <dl>
+          <dt>How much the circles disagree</dt><dd id="rmsVal"></dd>
+        </dl>
+        <p class="hint">Thick coloured lines = how far each circle is from the best point.</p>
+        <canvas id="biasChart"></canvas>
+        <div class="status" id="trickVerdict"></div>
+        <button class="next" data-goto="step">Next: how a computer does it →</button>
+      </div>
 
-        <label>测距噪声：<b id="noiseVal"></b>
+      <!-- 3 · How it's computed -->
+      <div class="card" data-for="step">
+        <h2>3 · How it's computed</h2>
+        <p>A computer doesn't try every value. It starts from a guess (pink dot) and improves it.</p>
+        <p>Each satellite compares the distance it <b>measured</b> with the distance the guess <b>predicts</b>, and pushes: outward if measured is longer, inward if shorter. Least squares combines the pushes into one step (dashed pink).</p>
+        <p>If every arrow pushes outward by the same amount, it isn't your position that's wrong. It's the clock.</p>
+        <div class="formula">measured = √((x−xᵢ)² + (y−yᵢ)²) + c × clock error</div>
+        <div class="row">
+          <button class="primary" id="stepNext">Next step →</button>
+          <button id="stepRun">Run to the end</button>
+          <button id="stepReset">Restart</button>
+        </div>
+        <table>
+          <thead><tr><th>Sat</th><th>Measured (km)</th><th>Predicted (km)</th><th>Difference</th></tr></thead>
+          <tbody id="stepTable"></tbody>
+        </table>
+        <dl>
+          <dt>Step</dt><dd id="stepK"></dd>
+          <dt>Clock error guess</dt><dd id="stepClock"></dd>
+          <dt>Average mismatch</dt><dd id="stepRms"></dd>
+          <dt>Distance from you</dt><dd id="stepErr"></dd>
+        </dl>
+        <div class="status" id="stepStatus"></div>
+        <p class="hint">Try dragging the pink dot far away, or above the satellites, then step again. Sometimes it lands on the wrong intersection.</p>
+        <button class="next" data-goto="play">Next: play →</button>
+      </div>
+
+      <!-- 4 · Play -->
+      <div class="card" data-for="play">
+        <h2>4 · Play</h2>
+        <p>Everything at once. Drag satellites, add noise, add satellites. Try bunching all the satellites together: what happens to the error?</p>
+        <label><input id="solveClock" type="checkbox" checked /> Solve for the clock error too</label>
+        <dl>
+          <dt>Position error</dt><dd id="errVal"></dd>
+          <dt>Clock error found</dt><dd id="clockEst"></dd>
+          <dt>Iterations</dt><dd id="iterVal"></dd>
+        </dl>
+        <div class="status" id="playStatus"></div>
+      </div>
+
+      <!-- Scene (steps 2–4) -->
+      <div class="card" data-for="trick step play">
+        <h2>Scene</h2>
+        <p class="hint">Drag the satellites or the black dot (you) to move them.</p>
+        <!-- hidden in step 2 so it doesn't give away the answer -->
+        <div data-for="step play">
+          <label>Phone's real clock error: <b id="clockVal"></b>
+            <input id="clock" type="range" min="-50" max="50" step="0.1" value="0" />
+          </label>
+          <div class="hint" id="clockDist"></div>
+        </div>
+        <label>Measurement noise: <b id="noiseVal"></b>
           <input id="noise" type="range" min="0" max="2000" step="50" value="0" />
         </label>
-
-        <label><input id="solveClock" type="checkbox" checked /> 把时钟误差当未知数一起解</label>
-
         <div class="row">
-          <button id="addSat">+ 卫星</button>
-          <button id="removeSat">− 卫星</button>
-          <button id="remeasure">重新测量</button>
-          <button id="reset">重置</button>
+          <button id="addSat">+ Satellite</button>
+          <button id="removeSat">− Satellite</button>
+          <button id="remeasure">New measurement</button>
+          <button id="reset">Reset</button>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>结果</h2>
-        <dl>
-          <dt>定位误差</dt><dd id="errVal"></dd>
-          <dt>算出的时钟误差</dt><dd id="clockEst"></dd>
-          <dt>迭代次数</dt><dd id="iterVal"></dd>
-        </dl>
-        <div id="status"></div>
       </div>
     </div>
   </main>
