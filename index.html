@@ -3,179 +3,458 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Your phone has no atomic clock — how GPS finds you</title>
+  <title>How does GPS find your position when your phone's clock is wrong?</title>
+  <meta name="description" content="An interactive investigation into how GPS finds your position even though a phone's clock is not accurate." />
+  <meta property="og:title" content="How does GPS find your position when your phone's clock is wrong?" />
+  <meta property="og:description" content="An interactive investigation with three experiments you can run in the browser." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ECECEC'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%231D1D1F' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%231D1D1F'/%3E%3C/svg%3E" />
+  <script>
+    // Pick the theme before the page paints, so there's no flash of the wrong colours.
+    (function () {
+      let t = null;
+      try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+      let v = null;
+      try { v = localStorage.getItem("voice"); } catch (e) {}
+      document.documentElement.dataset.voice = v || "report";
+    })();
+  </script>
   <style>
+    @font-face {
+      font-family: "Instrument Sans";
+      src: url("fonts/InstrumentSans.woff2") format("woff2");
+      font-weight: 400 700;
+      font-stretch: 75% 100%;
+      font-display: swap;
+    }
+
+    /* ---------- tokens: modelled on macOS system colours ---------- */
+    :root {
+      --window: #ececec;          /* window background */
+      --surface: #f7f7f7;         /* grouped boxes */
+      --screen: #ffffff;          /* the map displays */
+      --hairline: rgba(0, 0, 0, 0.1);
+      --ink: #1d1d1f;
+      --muted: #6e6e73;
+      --grid: #ececee;
+      /* No colour: everything is ink on grey. Things are told apart by shape and line style. */
+      --accent: #1d1d1f;
+      --accent-soft: rgba(0, 0, 0, 0.16);
+      --on-accent: #ffffff;
+      --btn-bg: #ffffff;
+      --btn-border: rgba(0, 0, 0, 0.14);
+      --btn-active: #e5e5e7;
+      --knob: #ffffff;
+      --seg-bg: rgba(0, 0, 0, 0.06);
+      --seg-on: #ffffff;
+      --toolbar: rgba(236, 236, 236, 0.72);   /* vibrancy: toolbar */
+      --hud: rgba(255, 255, 255, 0.66);       /* vibrancy: map overlays */
+      color-scheme: light;
+    }
+    [data-theme="dark"] {
+      --window: #1e1e1e;
+      --surface: #272729;
+      --screen: #151517;
+      --hairline: rgba(255, 255, 255, 0.1);
+      --ink: #f5f5f7;
+      --muted: #98989d;
+      --grid: #252528;
+      --accent: #f5f5f7;
+      --accent-soft: rgba(255, 255, 255, 0.24);
+      --on-accent: #1d1d1f;
+      --btn-bg: #3a3a3c;
+      --btn-border: rgba(255, 255, 255, 0.07);
+      --btn-active: #4a4a4c;
+      --knob: #d9d9dc;
+      --seg-bg: rgba(255, 255, 255, 0.08);
+      --seg-on: #636366;
+      --toolbar: rgba(30, 30, 30, 0.72);
+      --hud: rgba(38, 38, 40, 0.62);
+      color-scheme: dark;
+    }
+
+    /* ---------- base ---------- */
     * { box-sizing: border-box; }
+    html { background: var(--window); }
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      color: #1f2933;
-      background: #f7f8fa;
+      font-family: -apple-system, BlinkMacSystemFont, "Instrument Sans", "Segoe UI", Roboto, sans-serif;
+      color: var(--ink);
+      background: var(--window);
+      font-feature-settings: "tnum" 1;
+      -webkit-font-smoothing: antialiased;
     }
-    header { padding: 20px 24px 4px; }
-    header h1 { margin: 0 0 6px; font-size: 24px; }
-    header p { margin: 0; color: #52606d; }
-    .tabs { display: flex; gap: 8px; padding: 14px 24px 0; flex-wrap: wrap; }
-    .tab {
-      border: 1px solid #cbd2d9; background: #fff; border-radius: 999px;
-      padding: 8px 16px; font-size: 14px; cursor: pointer;
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 22px; }
+    a { color: var(--ink); text-underline-offset: 2px; }
+    :focus-visible { outline: none; box-shadow: 0 0 0 3.5px var(--accent-soft); }
+
+    /* ---------- toolbar (one of only two glass surfaces) ---------- */
+    .topbar {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--toolbar);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border-bottom: 1px solid var(--hairline);
     }
-    .tab.active { background: #1f2933; color: #fff; border-color: #1f2933; }
-    main {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 350px;
-      gap: 20px;
-      padding: 14px 24px 32px;
+    .topbar .wrap { display: flex; align-items: center; justify-content: space-between; height: 48px; }
+    .topbar .name { font-weight: 600; font-size: 13.5px; }
+    .topbar-controls { display: flex; gap: 10px; }
+
+    /* segmented controls */
+    .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--seg-bg); }
+    .seg button {
+      font: inherit; font-size: 12.5px; font-weight: 500; color: var(--ink);
+      border: 0; background: transparent; padding: 3px 11px; border-radius: 5px; cursor: pointer; white-space: nowrap;
     }
-    @media (max-width: 880px) { main { grid-template-columns: 1fr; } }
-    .stage { align-self: start; background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; overflow: hidden; }
-    canvas { display: block; width: 100%; touch-action: none; }
-    .panel { display: flex; flex-direction: column; gap: 14px; }
-    .card { background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; padding: 14px 16px; }
-    .card h2 { margin: 0 0 8px; font-size: 16px; }
-    .card p { margin: 0 0 8px; font-size: 14px; line-height: 1.55; }
-    .formula {
-      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
-      background: #f5f7fa; border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px;
+    .seg button[aria-pressed="true"] { background: var(--seg-on); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.05); }
+
+    /* ---------- type ---------- */
+    header.hero { padding-top: 34px; padding-bottom: 4px; }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 4.4vw, 40px); line-height: 1.1; font-weight: 700; letter-spacing: -0.022em; max-width: 26ch; }
+    .lede { margin: 0 0 22px; font-size: 18px; color: var(--muted); line-height: 1.45; }
+    h2 { margin: 0 0 10px; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
+    p { font-size: 16.5px; line-height: 1.6; margin: 0 0 14px; max-width: 66ch; }
+    section { padding: 8px 0 52px; scroll-margin-top: 60px; }
+    section + section { padding-top: 36px; border-top: 1px solid var(--hairline); }
+    section h2:not(:first-child) { margin-top: 26px; }
+
+    /* ---------- grouped boxes (solid, not glass) ---------- */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--hairline);
+      border-radius: 10px;
+      padding: 14px 16px 12px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
-    label { display: block; font-size: 14px; margin-top: 10px; }
-    input[type="range"] { width: 100%; }
-    .hint { font-size: 12px; color: #7b8794; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    button {
-      border: 1px solid #cbd2d9; background: #fff; border-radius: 8px;
-      padding: 6px 10px; font-size: 13px; cursor: pointer;
+    .dial-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .dial-label { font-size: 14.5px; color: var(--muted); }
+    .readout { font-size: 38px; font-weight: 600; letter-spacing: -0.025em; line-height: 1; }
+    .readout small { font-size: 16px; font-weight: 500; letter-spacing: 0; margin-left: 4px; color: var(--muted); }
+    .readout.sm { font-size: 26px; }
+    .readout.sm small { font-size: 14px; }
+    .dial-sub { font-size: 13.5px; color: var(--muted); margin-top: 2px; min-height: 1.2em; }
+
+    /* "use this": a static blue focus ring, removed once used */
+    .hl { border-color: var(--accent) !important; box-shadow: 0 0 0 3.5px var(--accent-soft) !important; }
+
+    /* sliders: thin track, white knob */
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 26px; margin: 8px 0 2px; background: transparent; cursor: pointer;
+      --fill: 50%;
     }
-    button:hover { background: #f0f4f8; }
-    button.primary { background: #d63384; border-color: #d63384; color: #fff; }
-    button.primary:hover { background: #b82a70; }
-    button.next { width: 100%; margin-top: 12px; padding: 9px; font-size: 14px; background: #1f2933; color: #fff; border-color: #1f2933; }
-    button.next:hover { background: #323f4b; }
-    dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0 0; font-size: 14px; }
-    dt { color: #52606d; }
-    dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
-    .status { font-size: 14px; min-height: 1em; margin-top: 10px; line-height: 1.5; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 6px; }
-    th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid #eef0f3; }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 4px; border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent) 0 var(--fill), var(--hairline) var(--fill));
+    }
+    input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--hairline); }
+    input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%;
+      background: var(--knob); border: 0;
+      box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--knob);
+      box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.18);
+    }
+    input[type="range"]:focus-visible { box-shadow: none; }
+    input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3.5px var(--accent-soft), 0 1px 3px rgba(0, 0, 0, 0.2); }
+    input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3.5px var(--accent-soft), 0 1px 3px rgba(0, 0, 0, 0.2); }
+
+    /* push buttons */
+    .btn {
+      font: inherit; font-size: 14px; font-weight: 500; color: var(--ink);
+      background: var(--btn-bg); border: 0.5px solid var(--btn-border); border-radius: 7px;
+      padding: 6px 14px; cursor: pointer;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.03);
+    }
+    .btn:active { background: var(--btn-active); }
+    .btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; padding: 7px 18px; }
+    .btn.primary:active { filter: brightness(0.9); }
+    .btn.primary.hl { border-color: transparent !important; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .check { display: inline-flex; gap: 8px; align-items: center; font-size: 14.5px; cursor: pointer; }
+    .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+    /* ---------- the live result line ---------- */
+    .status {
+      position: relative; padding: 10px 16px 10px 34px; margin: 16px 0 0;
+      font-size: 16px; line-height: 1.5; min-height: 3.1em;
+      background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
+    }
+    .status::before {
+      content: ""; position: absolute; left: 15px; top: calc(10px + 0.6em);
+      width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.45;
+    }
+    .status.ok::before { background: var(--ink); opacity: 1; }
+    .cue { white-space: nowrap; color: var(--muted); font-weight: 600; margin-left: 2px; }
+
+    /* ---------- the map displays ---------- */
+    .figure {
+      position: relative; margin-top: 14px; overflow: hidden;
+      background: var(--screen); border: 1px solid var(--hairline); border-radius: 10px;
+    }
+    .figure canvas { display: block; width: 100%; touch-action: none; }
+    /* map overlay: the other glass surface */
+    .hud {
+      position: absolute; right: 12px; bottom: 12px; pointer-events: none; text-align: right;
+      padding: 6px 12px; border-radius: 8px;
+      background: var(--hud);
+      backdrop-filter: blur(20px) saturate(1.8);
+      -webkit-backdrop-filter: blur(20px) saturate(1.8);
+      border: 0.5px solid var(--hairline);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    }
+    .hud span { display: block; font-size: 11.5px; color: var(--muted); }
+    .hud b { font-size: 17px; font-weight: 600; }
+
+    /* ---------- folded detail ---------- */
+    details { margin-top: 14px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 16px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 14px; font-weight: 500; }
+    details p { font-size: 15px; }
+    .formula { font-size: 15px; font-style: italic; padding: 10px 0; margin: 4px 0 8px; border-bottom: 1px solid var(--hairline); }
+    .hint { font-size: 14px; color: var(--muted); }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; margin: 12px 0 0; font-size: 14.5px; }
+    dt { color: var(--muted); }
+    dd { margin: 0; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin-top: 8px; }
+    th, td { text-align: right; padding: 6px 6px; border-bottom: 1px solid var(--hairline); }
     th:first-child, td:first-child { text-align: left; }
-    th { color: #52606d; font-weight: 500; }
-    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
-    .pos { color: #c0392b; } .neg { color: #2e86ab; }
+    th { color: var(--muted); font-weight: 500; }
+    
+    .play-dials { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 28px; }
+    .warn { color: var(--ink); font-size: 14px; min-height: 1em; margin-top: 6px; }
+
+    /* ---------- lab report bits ---------- */
+    .vars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0 0 16px; font-size: 14.5px; line-height: 1.4; font-weight: 500; }
+    .vars span { display: block; color: var(--muted); font-weight: 400; font-size: 13px; margin-bottom: 2px; }
+    .steps { margin: 0 0 18px; padding-left: 24px; font-size: 16.5px; line-height: 1.55; max-width: 66ch; }
+    .steps li { margin-bottom: 4px; padding-left: 4px; }
+    .found { margin: 0 0 16px; padding-left: 22px; font-size: 16.5px; line-height: 1.55; max-width: 66ch; }
+    .found li { margin-bottom: 4px; }
+
+    /* ---------- Oracle text mode (easter egg) ---------- */
+    .oracle-only { display: none; }
+    [data-voice="oracle"] .oracle-only { display: block; }
+    .typeline {
+      margin: -2px 0 14px; padding: 5px 12px; max-width: none;
+      font-size: 14.5px; font-weight: 600; border-radius: 7px;
+      background: var(--surface); border: 1px solid var(--hairline);
+    }
+    [data-voice="oracle"] h1 { max-width: none; }
+    [data-voice="oracle"] h1, [data-voice="oracle"] h2 { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .cost { display: inline-flex; gap: 3px; font-size: 0.6em; }
+    [data-voice="oracle"] main p:not(.typeline):not(.hint),
+    [data-voice="oracle"] main li,
+    [data-voice="oracle"] .lede { font-family: Georgia, "Times New Roman", serif; }
+    .flavor { display: block; font-style: italic; margin-top: 10px; color: var(--muted); }
+    .ms {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.15em; height: 1.15em; border-radius: 50%; vertical-align: -0.12em;
+      font: 700 0.72em/1 -apple-system, BlinkMacSystemFont, "Instrument Sans", sans-serif; color: #1b1b1b;
+      background: #d1d1d6; box-shadow: -1px 1px 0 rgba(0, 0, 0, 0.45);
+    }
+    h1 .ms, h2 .ms { font-size: 0.75em; width: 1.3em; height: 1.3em; }
+
+    footer { padding: 8px 0 64px; color: var(--muted); font-size: 14px; }
+
+    @media (max-width: 620px) {
+      .topbar .name { display: none; }
+      .topbar .wrap { justify-content: flex-end; }
+      .play-dials, .vars { grid-template-columns: 1fr; }
+      .vars { gap: 8px; }
+      .readout { font-size: 32px; }
+      p { font-size: 16px; }
+      .hud { right: 8px; bottom: 8px; padding: 5px 9px; }
+      .hud b { font-size: 15px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .panel { transition: none; } }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Your phone doesn't have an atomic clock.</h1>
-    <p>So how does it know how long a GPS signal took to arrive?</p>
+  <div class="topbar">
+    <div class="wrap">
+      <span class="name">GPS clock error investigation</span>
+      <div class="topbar-controls">
+        <div class="seg" role="group" aria-label="Text style">
+          <button data-set-voice="report" aria-pressed="true">Normal English</button>
+          <button data-set-voice="oracle" aria-pressed="false">English v2</button>
+        </div>
+        <div class="seg" role="group" aria-label="Appearance">
+          <button data-set-theme="light" aria-pressed="true">Light</button>
+          <button data-set-theme="dark" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <header class="hero wrap">
+    <h1 data-k="h1">How does GPS find your position when your phone's clock is wrong?</h1>
+    <p class="typeline oracle-only" data-k="h1t"></p>
+    <p class="lede" data-k="lede">An interactive investigation. All results are calculated live from your inputs.</p>
   </header>
 
-  <nav class="tabs">
-    <button class="tab" data-mode="problem">1 · The problem</button>
-    <button class="tab" data-mode="trick">2 · The trick</button>
-    <button class="tab" data-mode="step">3 · How it's computed</button>
-    <button class="tab" data-mode="play">4 · Play</button>
-  </nav>
+  <main class="wrap">
+    <!-- Background + Experiment 1 -->
+    <section id="problem">
+      <p data-k="bg">A phone finds its distance to each GPS satellite by timing the satellite's signal and multiplying by the speed of light. Each distance gives a circle, and the phone is where the circles cross. Light travels about 300 m in one microsecond (μs), but a phone only has a cheap quartz clock, not an atomic clock like the satellites.</p>
 
-  <main>
-    <div class="stage"><canvas id="view"></canvas></div>
-
-    <div class="panel">
-      <!-- 1 · The problem -->
-      <div class="card" data-for="problem">
-        <h2>1 · The problem</h2>
-        <p>Each satellite sends out the time. Your phone measures how long the signal took and turns it into a distance: a circle around that satellite. Where the circles meet is you.</p>
-        <p>But light travels <b>300 m in one microsecond</b>, and your phone's clock is a cheap quartz crystal. Drag the slider:</p>
-        <label>Your phone's clock is off by: <b id="probClockVal"></b>
-          <input id="probClock" type="range" min="-50" max="50" step="0.1" value="0" />
-        </label>
-        <div class="hint" id="probClockDist"></div>
-        <div class="status" id="probVerdict"></div>
-        <button class="next" data-goto="trick">Next: the trick →</button>
+      <h2 data-k="e1h">Experiment 1: what does a clock error do?</h2>
+      <p class="typeline oracle-only" data-k="e1t"></p>
+      <p data-k="hyp"><b>Hypothesis:</b> if the phone's clock is wrong by even a few microseconds, the calculated position will be wrong by kilometres, because every microsecond adds about 300 m to each measured distance.</p>
+      <div class="vars">
+        <div data-k="v1"><span>Independent variable</span>phone clock error (μs)</div>
+        <div data-k="v2"><span>Dependent variable</span>distance between calculated and true position (km)</div>
+        <div data-k="v3"><span>Controlled variables</span>satellite positions, true position, no noise</div>
       </div>
-
-      <!-- 2 · The trick -->
-      <div class="card" data-for="trick">
-        <h2>2 · The trick</h2>
-        <p>Your phone's clock is wrong by <b>the same amount for every satellite</b>. So every circle is too big by the same amount.</p>
-        <p>Shrink them all together. When they meet at one point, you've found the clock error, and your position with it.</p>
-        <div class="formula">corrected distance = measured − (speed of light × your guess)</div>
-        <label>Your guess for the clock error: <b id="guessVal"></b>
-          <input id="guess" type="range" min="-60" max="60" step="0.1" value="0" />
-        </label>
-        <dl>
-          <dt>How much the circles disagree</dt><dd id="rmsVal"></dd>
-        </dl>
-        <p class="hint">Thick coloured lines = how far each circle is from the best point.</p>
-        <canvas id="biasChart"></canvas>
-        <div class="status" id="trickVerdict"></div>
-        <button class="next" data-goto="step">Next: how a computer does it →</button>
-      </div>
-
-      <!-- 3 · How it's computed -->
-      <div class="card" data-for="step">
-        <h2>3 · How it's computed</h2>
-        <p>A computer doesn't try every value. It starts from a guess (pink dot) and improves it.</p>
-        <p>Each satellite compares the distance it <b>measured</b> with the distance the guess <b>predicts</b>, and pushes: outward if measured is longer, inward if shorter. Least squares combines the pushes into one step (dashed pink).</p>
-        <p>If every arrow pushes outward by the same amount, it isn't your position that's wrong. It's the clock.</p>
-        <div class="formula">measured = √((x−xᵢ)² + (y−yᵢ)²) + c × clock error</div>
-        <div class="row">
-          <button class="primary" id="stepNext">Next step →</button>
-          <button id="stepRun">Run to the end</button>
-          <button id="stepReset">Restart</button>
+      <div class="panel" id="s1Box">
+        <div class="dial-head">
+          <span class="dial-label" data-k="d1">Phone clock error</span>
+          <span class="readout"><span id="s1Val">0</span><small>μs</small></span>
         </div>
+        <input id="s1Clock" type="range" min="-50" max="50" step="1" value="0" aria-label="Phone clock error, in microseconds" />
+        <div class="dial-sub" id="s1Sub"></div>
+      </div>
+      <div class="status" id="s1Status" aria-live="polite"></div>
+      <div class="figure"><div class="hud"><span>Position error</span><b id="hud1">0 m</b></div><canvas id="fig1" aria-label="Map with three satellites and the circles they measure"></canvas></div>
+    </section>
+
+    <!-- Experiment 2 -->
+    <section id="trick">
+      <h2 data-k="e2h">Experiment 2: correcting the error by hand</h2>
+      <p class="typeline oracle-only" data-k="e2t"></p>
+      <p data-k="e2p1">All the timings are made with the same clock, so the clock error is the same for every satellite. This means every circle is too big by the same distance. If we shrink all the circles by the same amount, there should be one amount where they cross at a single point again, and that amount tells us the clock error.</p>
+      <p data-k="e2p2"><b>Method:</b> drag any circle inwards (all three change together) until they meet. You can also use the slider under the map.</p>
+      <div class="status" id="s2Status" aria-live="polite"></div>
+      <div class="figure"><div class="hud"><span>Disagreement</span><b id="hud2">—</b></div><canvas id="fig2" aria-label="Drag a circle to shrink all circles together"></canvas></div>
+      <div class="panel" style="margin-top:20px">
+        <div class="dial-head">
+          <span class="dial-label" data-k="d2">Clock error guess</span>
+          <span class="readout sm"><span id="guessVal">0</span><small>μs</small></span>
+        </div>
+        <input id="guess" type="range" min="-60" max="60" step="1" value="0" aria-label="Your guess for the clock error, in microseconds" />
+      </div>
+      <details id="s2Maths">
+        <summary data-k="sum2">Show the calculation</summary>
+        <div class="formula">corrected distance = measured distance − (speed of light × clock error guess)</div>
+        <dl><dt>Disagreement between the circles</dt><dd id="rmsVal"></dd></dl>
+        <p class="hint" data-k="hint2">The thick lines show how far each circle is from the best point. The graph shows the disagreement for every possible guess. The lowest point is the real clock error.</p>
+        <canvas id="biasChart"></canvas>
+      </details>
+    </section>
+
+    <!-- Experiment 3 -->
+    <section id="compute">
+      <h2 data-k="e3h">Experiment 3: how a computer does it</h2>
+      <p class="typeline oracle-only" data-k="e3t"></p>
+      <p data-k="e3p">A phone cannot drag circles, so it uses an algorithm instead. We used a method called Gauss-Newton least squares, which is similar to what real GPS receivers use. It repeats these steps:</p>
+      <ol class="steps" data-k="e3ol">
+        <li>Start with a guess for the position and the clock error (the hollow circle).</li>
+        <li>For each satellite, compare the measured distance with the distance the guess predicts. The difference is drawn as a thin arrow: outwards if the measured distance is longer, inwards if it is shorter.</li>
+        <li>Combine the arrows into one move (the thick dashed arrow) and move the guess.</li>
+        <li>Repeat until the guess stops moving.</li>
+      </ol>
+      <div class="row">
+        <button class="btn primary" id="stepNext" data-k="stepNext">Next step</button>
+        <button class="btn" id="stepRun" data-k="stepRun">Run to the end</button>
+        <button class="btn" id="stepReset" data-k="stepReset">Start over</button>
+      </div>
+      <div class="status" id="s3Status" aria-live="polite"></div>
+      <div class="figure"><div class="hud"><span>Clock error guess</span><b id="hud3">—</b></div><canvas id="fig3" aria-label="The computer's guess moving towards your position"></canvas></div>
+      <details>
+        <summary data-k="sum3">Show the numbers</summary>
+        <div class="formula">measured distance = √((x − xᵢ)² + (y − yᵢ)²) + c × clock error</div>
+        <p data-k="e3n">There are three unknowns (x, y and the clock error), so at least three satellites are needed on a flat map. In 3D there are four unknowns, which is why real GPS needs at least four satellites.</p>
         <table>
-          <thead><tr><th>Sat</th><th>Measured (km)</th><th>Predicted (km)</th><th>Difference</th></tr></thead>
+          <thead><tr><th>Satellite</th><th>Measured (km)</th><th>Predicted (km)</th><th>Difference</th></tr></thead>
           <tbody id="stepTable"></tbody>
         </table>
         <dl>
           <dt>Step</dt><dd id="stepK"></dd>
           <dt>Clock error guess</dt><dd id="stepClock"></dd>
-          <dt>Average mismatch</dt><dd id="stepRms"></dd>
-          <dt>Distance from you</dt><dd id="stepErr"></dd>
+          <dt>Average difference</dt><dd id="stepRms"></dd>
+          <dt>Distance from true position</dt><dd id="stepErr"></dd>
         </dl>
-        <div class="status" id="stepStatus"></div>
-        <p class="hint">Try dragging the pink dot far away, or above the satellites, then step again. Sometimes it lands on the wrong intersection.</p>
-        <button class="next" data-goto="play">Next: play →</button>
-      </div>
+        <p class="hint" data-k="hint3">If you drag the hollow circle above the satellites and run it again, it sometimes finds the wrong crossing point. This is because two circles can cross in two places.</p>
+      </details>
+    </section>
 
-      <!-- 4 · Play -->
-      <div class="card" data-for="play">
-        <h2>4 · Play</h2>
-        <p>Everything at once. Drag satellites, add noise, add satellites. Try bunching all the satellites together: what happens to the error?</p>
-        <label><input id="solveClock" type="checkbox" checked /> Solve for the clock error too</label>
+    <!-- Further testing -->
+    <section id="play">
+      <h2 data-k="e4h">Further testing</h2>
+      <p class="typeline oracle-only" data-k="e4t"></p>
+      <p data-k="e4p">Here every variable can be changed, and you can drag the satellites and the true position. Some things we noticed when testing:</p>
+      <ul class="found" data-k="e4ul">
+        <li>Adding measurement noise makes the position error bigger.</li>
+        <li>Moving the satellites close together makes the same amount of noise cause a much bigger error.</li>
+        <li>Unticking "Solve for the clock error" gives a large error even with no noise.</li>
+      </ul>
+      <div class="panel">
+        <div class="play-dials">
+          <div>
+            <div class="dial-head">
+              <span class="dial-label">Clock error</span>
+              <span class="readout sm"><span id="clockVal">15</span><small>μs</small></span>
+            </div>
+            <input id="clock" type="range" min="-50" max="50" step="1" value="15" aria-label="Clock error, in microseconds" />
+          </div>
+          <div>
+            <div class="dial-head">
+              <span class="dial-label">Measurement noise</span>
+              <span class="readout sm"><span id="noiseVal">0</span><small>m</small></span>
+            </div>
+            <input id="noise" type="range" min="0" max="2000" step="50" value="0" aria-label="Measurement noise, in metres" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <label class="check"><input id="solveClock" type="checkbox" checked /> Solve for the clock error</label>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn" id="addSat" data-k="addSat">Add a satellite</button>
+          <button class="btn" id="removeSat" data-k="removeSat">Remove a satellite</button>
+          <button class="btn" id="remeasure" data-k="remeasure">Measure again</button>
+          <button class="btn" id="reset" data-k="reset">Reset</button>
+        </div>
         <dl>
           <dt>Position error</dt><dd id="errVal"></dd>
           <dt>Clock error found</dt><dd id="clockEst"></dd>
           <dt>Iterations</dt><dd id="iterVal"></dd>
         </dl>
-        <div class="status" id="playStatus"></div>
+        <div class="warn" id="s4Status"></div>
       </div>
+      <div class="figure"><div class="hud"><span>Position error</span><b id="hud4">—</b></div><canvas id="fig4" aria-label="Map where you can drag the satellites and the true position"></canvas></div>
+    </section>
 
-      <!-- Scene (steps 2–4) -->
-      <div class="card" data-for="trick step play">
-        <h2>Scene</h2>
-        <p class="hint">Drag the satellites or the black dot (you) to move them.</p>
-        <!-- hidden in step 2 so it doesn't give away the answer -->
-        <div data-for="step play">
-          <label>Phone's real clock error: <b id="clockVal"></b>
-            <input id="clock" type="range" min="-50" max="50" step="0.1" value="0" />
-          </label>
-          <div class="hint" id="clockDist"></div>
-        </div>
-        <label>Measurement noise: <b id="noiseVal"></b>
-          <input id="noise" type="range" min="0" max="2000" step="50" value="0" />
-        </label>
-        <div class="row">
-          <button id="addSat">+ Satellite</button>
-          <button id="removeSat">− Satellite</button>
-          <button id="remeasure">New measurement</button>
-          <button id="reset">Reset</button>
-        </div>
-      </div>
-    </div>
+    <!-- Conclusion + Evaluation -->
+    <section id="conclusion">
+      <h2 data-k="e5h">Conclusion</h2>
+      <p class="typeline oracle-only" data-k="e5t"></p>
+      <p data-k="e5p">A clock error of only a few microseconds moved the calculated position by several kilometres, which supports our hypothesis. GPS still works with a cheap clock because the clock error is the same for every satellite. It can be treated as one more unknown and solved together with the position, as long as there is one extra satellite. This is why GPS needs four satellites in 3D and not three.</p>
+
+      <h2 data-k="e6h">Evaluation</h2>
+      <p class="typeline oracle-only" data-k="e6t"></p>
+      <p data-k="e6p">Our model has some limitations:</p>
+      <ul class="found" data-k="e6ul">
+        <li>It is 2D, so it only needs three satellites. A 3D version with four satellites would be more realistic.</li>
+        <li>The map is 100 km wide, but real satellites are about 20,000 km away. The maths is the same, but real circles would look almost like straight lines.</li>
+        <li>We ignored delays from the atmosphere, errors in the satellites' own clocks and orbits, and relativity. Real receivers have to correct for all of these.</li>
+        <li>In Experiment 2 the circles snap to the answer when you get within 3 μs, because the exact answer is only a few pixels wide. This makes it easier, but less precise.</li>
+      </ul>
+      <p data-k="e6p2">To improve it, we could add a 3D view, the delay from the atmosphere, and the relativity correction (satellite clocks run about 38 μs per day fast compared with clocks on the ground).</p>
+    </section>
   </main>
 
+  <footer class="wrap">
+    <!-- change this link if your repo has a different name -->
+    Source code: <a href="https://github.com/bokekryant/gps-sim">github.com/bokekryant/gps-sim</a>.
+    Typeface: Instrument Sans (SIL Open Font License).
+  </footer>
+
   <script src="solver.js"></script>
+  <script src="oracle.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
