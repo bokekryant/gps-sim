@@ -488,7 +488,7 @@ const fig2 = new Figure("fig2", { sats: defaultSats(), receiver: defaultReceiver
       ? say(`The circles do not meet yet (disagreement: ${fmtDist(rms)}). Keep dragging ${way}.`,
             `The circles don't share a point. <i>(Disagreement: ${fmtDist(rms)}.)</i> Drag ${way}.`)
       : say("Drag one of the circles inwards and stop when all three meet.", "{T}: Drag target circle inwards.");
-    $("s2Status").classList.toggle("ok", met);
+    $("s2Status").parentElement.classList.toggle("ok", met);
     $("guessVal").textContent = fmtUs(sc.guessBiasUs).replace(" μs", "");
     $("rmsVal").textContent = fit.ok ? fmtDist(rms) : "—";
     if ($("s2Maths").open) drawBiasChart(sc, rho);
@@ -612,7 +612,7 @@ const fig3 = new Figure("fig3", { sats: defaultSats(), receiver: defaultReceiver
             "Press <b>Resolve</b> to put the first step on the stack. Each thin arrow is a Satellite's push.")
       : say(`After step ${k}, the guess is ${off} from the true position and the clock error guess is ${us}. Press <b>Next step</b> again.`,
             `Step ${k} resolves. The guess counter is ${off} from the true position. The clock error guess is ${us}.`);
-    $("s3Status").classList.toggle("ok", converged);
+    $("s3Status").parentElement.classList.toggle("ok", converged);
     $("stepNext").classList.toggle("hl", !sc.touched);
 
     $("stepK").textContent = k;
@@ -785,3 +785,4 @@ window.addEventListener("resize", () => figures.forEach((f) => f.resize()));
 figures.forEach((f) => f.resize());
 applyTheme(document.documentElement.dataset.theme || "light", false);
 initVoice(); // oracle.js: lab report ↔ Oracle text
+initParticles(); // particles.js: blurred dashes behind the glass

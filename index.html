@@ -42,14 +42,26 @@
       --accent: #1d1d1f;
       --accent-soft: rgba(0, 0, 0, 0.16);
       --on-accent: #ffffff;
-      --btn-bg: #ffffff;
-      --btn-border: rgba(0, 0, 0, 0.14);
-      --btn-active: #e5e5e7;
       --knob: #ffffff;
       --seg-bg: rgba(0, 0, 0, 0.06);
       --seg-on: #ffffff;
-      --toolbar: rgba(236, 236, 236, 0.72);   /* vibrancy: toolbar */
-      --hud: rgba(255, 255, 255, 0.66);       /* vibrancy: map overlays */
+      --toolbar: rgba(236, 236, 236, 0.66);   /* vibrancy: toolbar */
+      --hud: rgba(255, 255, 255, 0.4);        /* vibrancy: map overlays */
+      /* 2.5D glass: lit top-left edge, darker bottom-right edge, a reflection band, a visible side */
+      --glass-spec: rgba(255, 255, 255, 0.6);
+      --glass-edge-hi: rgba(255, 255, 255, 0.95);
+      --glass-edge-side: rgba(255, 255, 255, 0.55);
+      --glass-edge-lo: rgba(0, 0, 0, 0.07);
+      --glass-body: rgba(255, 255, 255, 0.22);
+      --glass-rim: rgba(0, 0, 0, 0.14);
+      --glass-side-1: rgba(205, 205, 210, 0.9);
+      --glass-side-2: rgba(170, 170, 176, 0.55);
+      --glass-drop: rgba(0, 0, 0, 0.16);
+      --glass-fill: rgba(255, 255, 255, 0.5);
+      --fx-opacity: 0.42;
+      /* soft raised buttons (outside the glass) */
+      --nm-dark: rgba(0, 0, 0, 0.13);
+      --nm-light: rgba(255, 255, 255, 0.95);
       color-scheme: light;
     }
     [data-theme="dark"] {
@@ -63,14 +75,24 @@
       --accent: #f5f5f7;
       --accent-soft: rgba(255, 255, 255, 0.24);
       --on-accent: #1d1d1f;
-      --btn-bg: #3a3a3c;
-      --btn-border: rgba(255, 255, 255, 0.07);
-      --btn-active: #4a4a4c;
       --knob: #d9d9dc;
       --seg-bg: rgba(255, 255, 255, 0.08);
       --seg-on: #636366;
-      --toolbar: rgba(30, 30, 30, 0.72);
-      --hud: rgba(38, 38, 40, 0.62);
+      --toolbar: rgba(30, 30, 30, 0.66);
+      --hud: rgba(58, 58, 62, 0.34);
+      --glass-spec: rgba(255, 255, 255, 0.13);
+      --glass-edge-hi: rgba(255, 255, 255, 0.3);
+      --glass-edge-side: rgba(255, 255, 255, 0.12);
+      --glass-edge-lo: rgba(0, 0, 0, 0.45);
+      --glass-body: rgba(255, 255, 255, 0.04);
+      --glass-rim: rgba(0, 0, 0, 0.6);
+      --glass-side-1: rgba(78, 78, 84, 0.85);
+      --glass-side-2: rgba(0, 0, 0, 0.45);
+      --glass-drop: rgba(0, 0, 0, 0.55);
+      --glass-fill: rgba(255, 255, 255, 0.045);
+      --fx-opacity: 0.4;
+      --nm-dark: rgba(0, 0, 0, 0.55);
+      --nm-light: rgba(255, 255, 255, 0.055);
       color-scheme: dark;
     }
 
@@ -91,11 +113,17 @@
 
     /* ---------- toolbar (one of only two glass surfaces) ---------- */
     .topbar {
-      position: sticky; top: 0; z-index: 10;
-      background: var(--toolbar);
+      position: sticky; top: 0; z-index: 10; overflow: hidden;
+      background: linear-gradient(180deg, var(--glass-spec), transparent 70%), var(--toolbar);
       backdrop-filter: blur(24px) saturate(1.8);
       -webkit-backdrop-filter: blur(24px) saturate(1.8);
-      border-bottom: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--glass-rim);
+      box-shadow:
+        inset 0 1px 0 var(--glass-edge-hi),       /* lit top edge */
+        inset 0 -1px 0 var(--glass-edge-side),    /* the bevel just above the bottom edge */
+        0 1px 0 var(--glass-side-1),              /* the slab's side */
+        0 2px 0 var(--glass-side-2),
+        0 10px 24px -12px var(--glass-drop);      /* floating over the page */
     }
     .topbar .wrap { display: flex; align-items: center; justify-content: space-between; height: 48px; }
     .topbar .name { font-weight: 600; font-size: 13.5px; }
@@ -110,7 +138,7 @@
     .seg button[aria-pressed="true"] { background: var(--seg-on); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.05); }
 
     /* ---------- type ---------- */
-    header.hero { padding-top: 34px; padding-bottom: 4px; }
+    header.hero { padding-top: 26px; padding-bottom: 4px; }
     h1 { margin: 0 0 8px; font-size: clamp(28px, 4.4vw, 40px); line-height: 1.1; font-weight: 700; letter-spacing: -0.022em; max-width: 26ch; }
     .lede { margin: 0 0 22px; font-size: 18px; color: var(--muted); line-height: 1.45; }
     h2 { margin: 0 0 10px; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
@@ -165,16 +193,26 @@
     input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3.5px var(--accent-soft), 0 1px 3px rgba(0, 0, 0, 0.2); }
 
     /* push buttons */
+    /* Buttons on the page (never on glass): matte, the same colour as the surface under them,
+       lifted by one dark and one light shadow; they press in when clicked. */
+    body { --under: var(--window); }
+    .panel { --under: var(--surface); }
     .btn {
-      font: inherit; font-size: 14px; font-weight: 500; color: var(--ink);
-      background: var(--btn-bg); border: 0.5px solid var(--btn-border); border-radius: 7px;
-      padding: 6px 14px; cursor: pointer;
-      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.03);
+      --raised: 4px 4px 10px var(--nm-dark), -4px -4px 10px var(--nm-light);
+      --pressed: inset 3px 3px 7px var(--nm-dark), inset -3px -3px 7px var(--nm-light);
+      font: inherit; font-size: 14.5px; font-weight: 550; color: var(--ink);
+      background: var(--under); border: 0; border-radius: 12px;
+      padding: 10px 18px; cursor: pointer;
+      box-shadow: var(--raised);
+      transition: box-shadow 0.12s ease, transform 0.12s ease;
     }
-    .btn:active { background: var(--btn-active); }
-    .btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; padding: 7px 18px; }
-    .btn.primary:active { filter: brightness(0.9); }
-    .btn.primary.hl { border-color: transparent !important; }
+    .btn:hover { --raised: 5px 5px 13px var(--nm-dark), -5px -5px 13px var(--nm-light); }
+    .btn:active { box-shadow: var(--pressed); transform: translateY(1px); }
+    .btn.primary { font-weight: 700; font-size: 15px; padding: 11px 22px; }
+    /* "use this" / keyboard focus: a thin ring with a gap, so it doesn't muddy the raised shadow */
+    .btn:focus-visible, .btn.hl { box-shadow: var(--raised), 0 0 0 4px var(--under), 0 0 0 5.5px var(--accent-soft) !important; border-color: transparent !important; }
+    .btn.hl:active { box-shadow: var(--pressed), 0 0 0 4px var(--under), 0 0 0 5.5px var(--accent-soft) !important; }
+    @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .check { display: inline-flex; gap: 8px; align-items: center; font-size: 14.5px; cursor: pointer; }
     .check input { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -190,6 +228,42 @@
       width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.45;
     }
     .status.ok::before { background: var(--ink); opacity: 1; }
+
+    /* ---------- 2.5D frosted glass, with blurred particles behind it ----------
+       layers, back to front: frosted fill → particles (canvas.fx, blurred) → reflection band
+       and lit/shaded edges (::after) → text. The side and drop shadow sit outside. */
+    .glass {
+      position: relative; isolation: isolate; overflow: hidden;
+      background: var(--glass-fill);
+      backdrop-filter: blur(16px) saturate(1.6);
+      -webkit-backdrop-filter: blur(16px) saturate(1.6);
+      border: 0;
+      box-shadow:
+        0 0 0 0.5px var(--glass-rim),
+        0 2px 0 var(--glass-side-1),            /* the slab's side */
+        0 3px 0 var(--glass-side-2),
+        0 10px 20px -8px var(--glass-drop),     /* lifted off the page */
+        0 26px 44px -20px var(--glass-drop);
+    }
+    .glass::after {
+      content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+      background: linear-gradient(155deg, var(--glass-spec) 0%, var(--glass-body) 34%, transparent 60%);
+      box-shadow:
+        inset 0 1px 0 var(--glass-edge-hi),     /* lit top edge */
+        inset 1px 0 0 var(--glass-edge-side),   /* lit left edge */
+        inset 0 -1px 0 var(--glass-edge-lo),    /* shaded bottom edge */
+        inset -1px 0 0 var(--glass-edge-lo),    /* shaded right edge */
+        inset 0 0 24px var(--glass-body);       /* light caught inside */
+    }
+    canvas.fx {
+      position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none;
+      filter: blur(1.8px); opacity: var(--fx-opacity);
+    }
+    .topbar canvas.fx { filter: blur(1.6px); opacity: calc(var(--fx-opacity) * 0.6); }
+    .status.glass { border-radius: 14px; }
+    .hero-card { border-radius: 22px; padding: 28px 30px 26px; margin: 4px 0 30px; }
+    .hero-card .lede { margin-bottom: 0; }
+    @media (max-width: 620px) { .hero-card { padding: 20px 18px 18px; border-radius: 18px; } }
     .cue { white-space: nowrap; color: var(--muted); font-weight: 600; margin-left: 2px; }
 
     /* ---------- the map displays ---------- */
@@ -201,12 +275,22 @@
     /* map overlay: the other glass surface */
     .hud {
       position: absolute; right: 12px; bottom: 12px; pointer-events: none; text-align: right;
-      padding: 6px 12px; border-radius: 8px;
-      background: var(--hud);
-      backdrop-filter: blur(20px) saturate(1.8);
-      -webkit-backdrop-filter: blur(20px) saturate(1.8);
-      border: 0.5px solid var(--hairline);
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+      padding: 8px 14px 9px; border-radius: 12px;
+      /* reflection band across the top-left, over the frosted body */
+      background: linear-gradient(155deg, var(--glass-spec) 0%, var(--glass-body) 38%, transparent 62%), var(--hud);
+      backdrop-filter: blur(14px) saturate(1.7);
+      -webkit-backdrop-filter: blur(14px) saturate(1.7);
+      box-shadow:
+        inset 0 1px 0 var(--glass-edge-hi),       /* lit top edge */
+        inset 1px 0 0 var(--glass-edge-side),     /* lit left edge */
+        inset 0 -1px 0 var(--glass-edge-lo),      /* shaded bottom edge */
+        inset -1px 0 0 var(--glass-edge-lo),      /* shaded right edge */
+        inset 0 0 16px var(--glass-body),         /* light caught inside the glass */
+        0 0 0 0.5px var(--glass-rim),             /* rim */
+        0 2px 0 var(--glass-side-1),              /* the block's side: it has thickness */
+        0 3px 0 var(--glass-side-2),
+        0 10px 18px -6px var(--glass-drop),       /* lifted off the map */
+        0 22px 36px -14px var(--glass-drop);
     }
     .hud span { display: block; font-size: 11.5px; color: var(--muted); }
     .hud b { font-size: 17px; font-weight: 600; }
@@ -275,7 +359,7 @@
   </style>
 </head>
 <body>
-  <div class="topbar">
+  <div class="topbar" data-particles>
     <div class="wrap">
       <span class="name">GPS clock error investigation</span>
       <div class="topbar-controls">
@@ -292,9 +376,11 @@
   </div>
 
   <header class="hero wrap">
+    <div class="hero-card glass" data-particles>
     <h1 data-k="h1">How does GPS find your position when your phone's clock is wrong?</h1>
     <p class="typeline oracle-only" data-k="h1t"></p>
     <p class="lede" data-k="lede">An interactive investigation. All results are calculated live from your inputs.</p>
+    </div>
   </header>
 
   <main class="wrap">
@@ -318,7 +404,7 @@
         <input id="s1Clock" type="range" min="-50" max="50" step="1" value="0" aria-label="Phone clock error, in microseconds" />
         <div class="dial-sub" id="s1Sub"></div>
       </div>
-      <div class="status" id="s1Status" aria-live="polite"></div>
+      <div class="status glass" data-particles><span id="s1Status" aria-live="polite"></span></div>
       <div class="figure"><div class="hud"><span>Position error</span><b id="hud1">0 m</b></div><canvas id="fig1" aria-label="Map with three satellites and the circles they measure"></canvas></div>
     </section>
 
@@ -328,7 +414,7 @@
       <p class="typeline oracle-only" data-k="e2t"></p>
       <p data-k="e2p1">All the timings are made with the same clock, so the clock error is the same for every satellite. This means every circle is too big by the same distance. If we shrink all the circles by the same amount, there should be one amount where they cross at a single point again, and that amount tells us the clock error.</p>
       <p data-k="e2p2"><b>Method:</b> drag any circle inwards (all three change together) until they meet. You can also use the slider under the map.</p>
-      <div class="status" id="s2Status" aria-live="polite"></div>
+      <div class="status glass" data-particles><span id="s2Status" aria-live="polite"></span></div>
       <div class="figure"><div class="hud"><span>Disagreement</span><b id="hud2">—</b></div><canvas id="fig2" aria-label="Drag a circle to shrink all circles together"></canvas></div>
       <div class="panel" style="margin-top:20px">
         <div class="dial-head">
@@ -362,7 +448,7 @@
         <button class="btn" id="stepRun" data-k="stepRun">Run to the end</button>
         <button class="btn" id="stepReset" data-k="stepReset">Start over</button>
       </div>
-      <div class="status" id="s3Status" aria-live="polite"></div>
+      <div class="status glass" data-particles><span id="s3Status" aria-live="polite"></span></div>
       <div class="figure"><div class="hud"><span>Clock error guess</span><b id="hud3">—</b></div><canvas id="fig3" aria-label="The computer's guess moving towards your position"></canvas></div>
       <details>
         <summary data-k="sum3">Show the numbers</summary>
@@ -455,6 +541,7 @@
 
   <script src="solver.js"></script>
   <script src="oracle.js"></script>
+  <script src="particles.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
